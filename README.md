@@ -12,6 +12,7 @@ Alternating Least Squares (ALS) and truncated SVD.
 |---|---|
 | Muhammad Saad Malik | ALS, data pipeline |
 | Jagadeesh Aravind Kalyan Shetti | Truncated SVD, evaluation |
+| Emmanuel | — |
 
 ## Repository structure
 
