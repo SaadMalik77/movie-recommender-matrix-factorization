@@ -370,20 +370,20 @@ print(f"Bias baseline fitted in {n_bias_sweeps} sweeps, mu_hat = {mu_hat:.4f}")
 
 # %% Check Proposition 6: the updates solve the stacked least-squares system
 # Stack all biases into x = (b, c), of length M + N. Each known rating gives
-# one row of A, with a 1 in column u and a 1 in column M + i, and the
-# response is y_ui = r_ui - mu. Prop 6 says the updates solve
-# (A^T A + lam_b I) x = A^T y. numpy.linalg.lstsq minimizes ||A x - y||^2
+# one row of the design matrix D, with a 1 in column u and a 1 in column
+# M + i, and the response is y_ui = r_ui - mu. Prop 6 says the updates solve
+# (D^T D + lam_b I) x = D^T y. numpy.linalg.lstsq minimizes ||D x - y||^2
 # only, so we append the rows sqrt(lam_b) I (with response 0) to include the
 # penalty lam_b ||x||^2.
 rows, cols = np.nonzero(mask)
-A_stack = np.zeros((len(rows), M + N))
-A_stack[np.arange(len(rows)), rows] = 1.0
-A_stack[np.arange(len(rows)), M + cols] = 1.0
+D_stack = np.zeros((len(rows), M + N))
+D_stack[np.arange(len(rows)), rows] = 1.0
+D_stack[np.arange(len(rows)), M + cols] = 1.0
 y_stack = Rb[rows, cols] - mu_hat
 
-A_aug = np.vstack([A_stack, np.sqrt(LAM_B) * np.eye(M + N)])
+D_aug = np.vstack([D_stack, np.sqrt(LAM_B) * np.eye(M + N)])
 y_aug = np.concatenate([y_stack, np.zeros(M + N)])
-x_lstsq = np.linalg.lstsq(A_aug, y_aug, rcond=None)[0]
+x_lstsq = np.linalg.lstsq(D_aug, y_aug, rcond=None)[0]
 
 bias_gap = np.abs(x_lstsq - np.concatenate([b_hat, c_hat])).max()
 print(f"Prop 6  Largest gap between our biases and lstsq: {bias_gap:.2e}")
