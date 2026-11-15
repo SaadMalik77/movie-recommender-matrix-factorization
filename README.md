@@ -14,6 +14,10 @@ Alternating Least Squares (ALS) and truncated SVD.
 | Jagadeesh Aravind Kalyan Shetti | Truncated SVD, evaluation |
 | Emmanuel Adjei Danso | Bias baseline, confidence intervals |
 
+
+## NOTE: AI use disclosure
+AI Use Disclosure. This topic was new to us, so we used an AI assistant, Claude (Anthropic), throughout this iteration. We used it to learn the concepts behind ALS, the truncated SVD and the related proofs, and to break the iteration into tasks. It helped us set up the GitHub repository and the Python environment, and it helped us write the code in src/load_data.py and src/simulation.py. It drafted the LaTeX for Section 7 (the data description and the simulation check) from our code’s output, reviewed Sections 2–6 for mathematical errors and drafted the corrections, and prepared the first version of our project plan. We reviewed all of this work, and each of us can explain any part of this report.
+
 ## Repository structure
 
 ```
