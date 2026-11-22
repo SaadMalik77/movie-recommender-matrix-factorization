@@ -8,15 +8,22 @@ Alternating Least Squares (ALS) and truncated SVD.
 
 MovieLens 100K, provided split `u1.base` (80,000 training ratings) / `u1.test` (20,000 test ratings):
 
-| Method | Test RMSE |
-|---|---|
-| Predict the global mean rating | 1.154 |
-| Predict each movie's mean rating | 1.033 |
-| ALS, k = 5 factors, λ = 10 | **0.960** |
+| Method | Test RMSE | 95% interval |
+|---|---|---|
+| Predict the global mean rating | 1.154 | [1.144, 1.164] |
+| Predict each movie's mean rating | 1.033 | [1.023, 1.043] |
+| Truncated SVD, movie-mean fill, k = 10 | 0.994 | [0.984, 1.004] |
+| Truncated SVD, zero fill, k = 20 | 2.550 | [2.536, 2.563] |
+| ALS, k = 5 factors, λ = 10 | 0.960 | [0.950, 0.970] |
+| Bias baseline µ + b_u + c_i, λ_b = 1 | **0.953** | [0.943, 0.963] |
 
-ALS was run for k ∈ {2, 5, 10, 20} and λ ∈ {0.1, 1, 10}; see `figures/als_test_rmse_real.png`.
-With little regularization, more factors overfit: at k = 20 and λ = 0.1 the training RMSE
-is 0.47 but the test RMSE is 1.29.
+ALS beats the global mean, the movie mean and the truncated SVD; for each, a 95% interval for
+the difference in MSE on the same test ratings excludes 0. The simple bias baseline, however, is
+slightly but significantly better than plain ALS: ALS here has to spend factors and penalty on each
+user's and each movie's average rating. Fitting the biases first and running ALS on the residuals
+is the natural next step. See `figures/test_rmse_methods_real.png` and `figures/als_test_rmse_real.png`;
+with little regularization, more factors overfit (at k = 20 and λ = 0.1 the training RMSE is 0.47
+but the test RMSE is 1.29).
 
 ## Team
 
@@ -41,8 +48,9 @@ Gaussian elimination, and the results are checked against `numpy.linalg.solve`.
 
 ```
 src/
-  methods.py           ALS from scratch: one function per algorithm step
-  simulate.py          simulated ratings with a known true matrix
+  methods.py           all three methods from scratch (bias baseline, ALS, truncated SVD by
+                       power iteration) and the confidence intervals: one function per step
+  simulate.py          simulated data with known truth (factor, bias and error models)
   small_example.py     3 × 3 worked example, every step printed in exact fractions
   check_simulation.py  simulation test: truth, library, sample size, stress test, assumptions
   run_real.py          MovieLens: baselines, ALS for every (k, λ), library check, assumptions
@@ -84,8 +92,8 @@ Run every script from the repository root. Figures are saved to `figures/`.
 
 ```bash
 python src/small_example.py      # 3 × 3 worked example of ALS, exact fractions (under 1 s)
-python src/check_simulation.py   # simulation test with a known true matrix (about 10 s)
-python src/run_real.py           # MovieLens: k × λ grid and all checks (about 2 minutes)
+python src/check_simulation.py   # simulation test of all three methods (about 15 s)
+python src/run_real.py           # MovieLens: all three methods and every check (about 2 minutes)
 python src/load_data.py          # describe MovieLens 100K and save the data plots
 python src/simulation.py         # the first simulation check of the derivations
 ```
@@ -97,14 +105,17 @@ What each script checks:
   second way: each new row satisfies its normal equations exactly, and J does not increase.
 - **`check_simulation.py`** fits ALS to a rank-3 matrix with 70% of its entries hidden and
   compares the result with the truth (RMSE on the hidden entries) and with `numpy.linalg.solve`
-  (every row update). It also checks that J never increases, shows how the error shrinks as the
-  matrix grows, finds where ALS stops recovering the matrix when fewer entries are observed,
-  and runs the assumption checks. Output figures: `als_objective_simulation.png`,
-  `als_error_vs_size.png`, `als_stress_test.png`, `assumptions_simulation.png`.
-- **`run_real.py`** records the data checks, computes the two baselines, runs ALS for every
-  (k, λ), compares every row update of the best model with `numpy.linalg.solve`, and runs the
-  same assumption checks on the test residuals. Output figures: `als_test_rmse_real.png`,
-  `als_objective_real.png`, `assumptions_real.png`.
+  (every row update). It checks the truncated SVD against `numpy.linalg.svd`, the bias baseline
+  against `numpy.linalg.lstsq`, and the coverage of the 95% interval over 2,000 experiments. It
+  also checks that J never increases, shows how the error shrinks as the matrix grows, finds where
+  ALS stops recovering the matrix when fewer entries are observed, and runs all seven assumption
+  checks. Output figures: `als_objective_simulation.png`, `als_error_vs_size.png`,
+  `als_stress_test.png`, `assumptions_simulation.png`, `assumptions_extra_simulation.png`.
+- **`run_real.py`** records the data checks, then runs the bias baseline, ALS for every (k, λ) and
+  the truncated SVD with two fills, each checked against a NumPy routine. It gives every test RMSE
+  a 95% confidence interval, tests whether the differences between methods are real, and runs all
+  seven assumption checks. Output figures: `als_test_rmse_real.png`, `test_rmse_methods_real.png`,
+  `als_objective_real.png`, `assumptions_real.png`, `assumptions_extra_real.png`.
 
 Each script ends with the rows of a verification table: what was compared, against what,
 the difference, and whether it passed.

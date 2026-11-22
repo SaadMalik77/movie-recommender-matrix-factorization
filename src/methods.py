@@ -1,7 +1,10 @@
 """
-From-scratch functions for the matrix-factorization recommender.
-
-Method 2 of the report: alternating least squares (ALS), one function per step.
+From-scratch functions for the matrix-factorization recommender, one function per
+step of each method in the report:
+  Method 1  the bias baseline  r̂_ui = µ + b_u + c_i          (Proposition 6)
+  Method 2  alternating least squares (ALS)                   (Propositions 1, 2, Theorem 4)
+  Method 3  truncated SVD of the filled matrix, power iteration (Proposition 5)
+plus the 95% confidence interval for the test RMSE (Proposition 8).
 
 Notation (as in the report):
   m, n         number of users and movies
@@ -20,7 +23,9 @@ Every function also accepts NumPy arrays of fractions.Fraction (dtype=object),
 so the small worked example runs exactly on the same code as the simulation
 and the real data.
 
-Owner: Muhammad Saad Malik (ALS)
+Owners: Muhammad Saad Malik (Method 2, ALS)
+        Jagadeesh Aravind Kalyan Shetti (Method 3, truncated SVD)
+        Emmanuel Adjei Danso (Method 1, bias baseline; confidence intervals)
 """
 import numpy as np
 
@@ -140,6 +145,143 @@ def my_als(R, mask, k, lam, iters=50, seed=0, tol=0.0, scale=0.1):
 def my_predict(U, V, mu=0, clip=None):
     P = mu + U @ V.T
     return P if clip is None else np.clip(P, *clip)
+
+
+# ---------------------------------------------------------------------------
+# Method 1: the bias baseline  r̂_ui = µ + b_u + c_i  (Proposition 6)
+# ---------------------------------------------------------------------------
+
+# Step 3, users. With the movie biases c fixed:
+#   b_u = Σ_{i∈I_u} (r_ui − µ − c_i) / (|I_u| + λ_b)
+def my_update_b(R, mask, mu, c, lam_b):
+    resid = np.where(mask, R - mu - c[None, :], 0.0)
+    return resid.sum(axis=1) / (mask.sum(axis=1) + lam_b)
+
+
+# Step 3, movies. With the user biases b fixed:
+#   c_i = Σ_{u∈𝒰_i} (r_ui − µ − b_u) / (|𝒰_i| + λ_b)
+# Exchanging users and movies turns this into the user update on Rᵀ.
+def my_update_c(R, mask, mu, b, lam_b):
+    return my_update_b(R.T, mask.T, mu, b, lam_b)
+
+
+# The bias objective:
+#   B(b, c) = Σ_{(u,i)∈Ω} (r_ui − µ − b_u − c_i)² + λ_b (Σ_u b_u² + Σ_i c_i²)
+def my_bias_objective(R, mask, mu, b, c, lam_b):
+    E = np.where(mask, R - mu - b[:, None] - c[None, :], 0.0)
+    return np.sum(E ** 2) + lam_b * (b @ b + c @ c)
+
+
+# Steps 1–3. µ = mean of the known ratings, b = c = 0, then alternate the two
+# updates until no bias changes by more than tol. Like ALS, B must never rise
+# (Remark 7); an increase is an error. Returns µ, b, c and B after every half-step.
+def my_fit_biases(R, mask, lam_b, tol=1e-12, max_sweeps=10_000):
+    mu = R[mask].mean()
+    b, c = np.zeros(R.shape[0]), np.zeros(R.shape[1])
+    hist = [my_bias_objective(R, mask, mu, b, c, lam_b)]
+    for _ in range(max_sweeps):
+        b_new = my_update_b(R, mask, mu, c, lam_b)
+        hist.append(my_bias_objective(R, mask, mu, b_new, c, lam_b))
+        c_new = my_update_c(R, mask, mu, b_new, lam_b)
+        hist.append(my_bias_objective(R, mask, mu, b_new, c_new, lam_b))
+        for a, z in ((hist[-3], hist[-2]), (hist[-2], hist[-1])):
+            if z > a + 1e-9 * abs(a):
+                raise RuntimeError(f"B increased from {a} to {z}: Remark 7 violated")
+        change = max(np.abs(b_new - b).max(), np.abs(c_new - c).max())
+        b, c = b_new, c_new
+        if change < tol:
+            break
+    return mu, b, c, np.array(hist)
+
+
+# Step 4. Predict:  r̂_ui = µ + b_u + c_i,  clipped to [lo, hi] when clip = (lo, hi).
+def my_predict_biases(mu, b, c, clip=None):
+    P = mu + b[:, None] + c[None, :]
+    return P if clip is None else np.clip(P, *clip)
+
+
+# ---------------------------------------------------------------------------
+# Method 3: truncated SVD of the filled matrix, by power iteration (Prop. 5)
+# ---------------------------------------------------------------------------
+
+# Step 1. Fill the gaps:  R̃_ui = r_ui on Ω, and elsewhere the mean of movie i's
+# known ratings (how="movie"; the global mean for a movie with none), the global
+# mean (how="global"), or 0 (how="zero").
+def my_fill(R, mask, how="movie"):
+    mu = R[mask].mean()
+    if how == "zero":
+        fill = np.zeros(R.shape[1])
+    elif how == "global":
+        fill = np.full(R.shape[1], mu)
+    else:
+        cnt = mask.sum(axis=0)
+        fill = np.where(cnt > 0, np.where(mask, R, 0.0).sum(axis=0) / np.maximum(cnt, 1), mu)
+    return np.where(mask, R, fill[None, :])
+
+
+# Step 2. The top k singular triples of A, one at a time. For j = 1, …, k start
+# from a random unit vector x ∈ R^n and repeat until x stops changing (‖Δx‖ < tol):
+#   y ← Aᵀ(A x),     y ← y − Σ_{l<j} (z_lᵀ y) z_l,     x ← y / ‖y‖.
+# Then  z_j = x,  σ_j = ‖A z_j‖,  w_j = A z_j / σ_j.
+# AᵀA (n × n) is never formed: each iteration is two matrix–vector products.
+# The error shrinks like (σ_{j+1}/σ_j)^{2t} after t iterations (Assumption 7).
+# Returns σ (length k), W (m × k), Z (n × k) and the iterations each factor used.
+def my_svd_power(A, k, tol=1e-10, max_iter=5_000, seed=0):
+    rng = np.random.default_rng(seed)
+    m, n = A.shape
+    sig, W, Z = np.zeros(k), np.zeros((m, k)), np.zeros((n, k))
+    iters = np.zeros(k, dtype=int)
+    for j in range(k):
+        x = rng.normal(size=n)
+        x = x - Z[:, :j] @ (Z[:, :j].T @ x)
+        x = x / np.sqrt(x @ x)
+        for t in range(1, max_iter + 1):
+            y = A.T @ (A @ x)
+            y = y - Z[:, :j] @ (Z[:, :j].T @ y)
+            x_new = y / np.sqrt(y @ y)
+            done = np.sqrt(np.sum((x_new - x) ** 2)) < tol
+            x = x_new
+            if done:
+                break
+        iters[j] = t
+        Az = A @ x
+        sig[j] = np.sqrt(Az @ Az)
+        Z[:, j], W[:, j] = x, Az / sig[j]
+    return sig, W, Z, iters
+
+
+# Step 4. Predict with the first k triples:  R̂_k = Σ_{j≤k} σ_j w_j z_jᵀ,
+# clipped to [lo, hi] when clip = (lo, hi).
+def my_svd_predict(sig, W, Z, k=None, clip=None):
+    k = len(sig) if k is None else k
+    P = (W[:, :k] * sig[:k]) @ Z[:, :k].T
+    return P if clip is None else np.clip(P, *clip)
+
+
+# ---------------------------------------------------------------------------
+# Error bars (Proposition 8)
+# ---------------------------------------------------------------------------
+
+# 95% confidence interval for the test error. With squared errors e_j over the N
+# test pairs, mean ē and sample sd s:
+#   θ ∈ [L, H] = [ē − 1.96 s/√N,  ē + 1.96 s/√N]   (true MSE),
+#   √θ ∈ [√max(L, 0), √H]                           (true RMSE).
+# Returns (RMSE, lower, upper).
+def my_rmse_ci(P, T, mask, z=1.96):
+    e = (P - T)[mask] ** 2
+    half = z * e.std(ddof=1) / np.sqrt(e.size)
+    lo, hi = e.mean() - half, e.mean() + half
+    return float(np.sqrt(e.mean())), float(np.sqrt(max(lo, 0.0))), float(np.sqrt(hi))
+
+
+# 95% interval for the difference in MSE between two predictors on the same test
+# pairs. Proposition 8 applied to d_j = e_j(A) − e_j(B):  d̄ ± 1.96 s_d / √N.
+# An interval that excludes 0 means the two errors really differ.
+# Returns (difference, lower, upper).
+def my_mse_diff_ci(P_a, P_b, T, mask, z=1.96):
+    d = (P_a - T)[mask] ** 2 - (P_b - T)[mask] ** 2
+    half = z * d.std(ddof=1) / np.sqrt(d.size)
+    return float(d.mean()), float(d.mean() - half), float(d.mean() + half)
 
 
 # ---------------------------------------------------------------------------
