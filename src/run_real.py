@@ -180,8 +180,8 @@ fig.savefig(FIG_DIR / "als_objective_real.png", dpi=150)
 
 # %% 5. Library check: our Gaussian elimination against numpy.linalg.solve
 # Every user system G_u u_u = h_u (with the final V) and every movie system
-# (with the final U) of the best model, solved both ways. A solver with
-# rounding error ε ≈ 1.1e-16 can be off by roughly cond(G) × ε (relative).
+# (with the final U) of the best model, solved both ways. Two stable solvers
+# can differ by roughly cond(G) × ε (relative), with ε ≈ 2.2e-16 the machine epsilon.
 U, V = rb["U"], rb["V"]
 G_1, h_1 = my_normal_equations(V[mask_tr[0]], R_c[0, mask_tr[0]], lam_best)
 print("\n5. Library")
