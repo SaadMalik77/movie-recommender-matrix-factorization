@@ -61,7 +61,8 @@ def my_normal_equations(F, r, lam):
 
 # Solve G x = h by Gaussian elimination with partial pivoting.
 #   Forward:  for each column c, swap up the row with the largest |G[r, c]| (r ≥ c),
-#             then subtract (G[r, c] / G[c, c]) × row c from every row r > c.
+#             then subtract (G[r, c] / G[c, c]) × row c from every row r > c
+#             (all rows r > c at once, as one outer product).
 #   Backward: x_r = (h_r − Σ_{j>r} G[r, j] x_j) / G[r, r],   r = k−1, …, 0.
 # About (2/3) k³ operations. G is invertible by Proposition 2 (λ > 0).
 def my_gauss_solve(G, h):
@@ -70,19 +71,15 @@ def my_gauss_solve(G, h):
     A[:, :k] = G
     A[:, k] = h
     for c in range(k):
-        p = c + int(np.argmax([abs(A[r, c]) for r in range(c, k)]))
+        p = c + int(np.argmax(np.abs(A[c:, c])))
         if A[p, c] == 0:
             raise ValueError("G is singular")
         if p != c:
             A[[c, p]] = A[[p, c]]
-        for r in range(c + 1, k):
-            A[r, c:] = A[r, c:] - (A[r, c] / A[c, c]) * A[c, c:]
+        A[c + 1:, c:] = A[c + 1:, c:] - np.outer(A[c + 1:, c] / A[c, c], A[c, c:])
     x = np.empty(k, dtype=A.dtype)
     for r in range(k - 1, -1, -1):
-        s = A[r, k]
-        for j in range(r + 1, k):
-            s = s - A[r, j] * x[j]
-        x[r] = s / A[r, r]
+        x[r] = (A[r, k] - np.dot(A[r, r + 1:k], x[r + 1:])) / A[r, r]
     return x
 
 
