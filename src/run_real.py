@@ -14,7 +14,9 @@ Sections:
   5. Library check: every row update of the best model, solved by our Gaussian
      elimination and by numpy.linalg.solve; the size of the difference is
      explained by the condition number of G.
-  6. Rows of the verification table.
+  6. Assumption checks: Assumptions 1, 3, 4 and 5 (assumptions.py), the same
+     checks that check_simulation.py runs on simulated data.
+  7. Rows of the verification table.
 
 Run from the repository root:   python src/run_real.py
 Figures are saved to figures/.
@@ -32,6 +34,7 @@ import pandas as pd
 
 from methods import (my_centre, my_normal_equations, my_gauss_solve, my_als,
                      my_predict, my_rmse, report)
+from assumptions import min_eig_G, print_checks, plot_checks
 
 try:
     ROOT = Path(__file__).resolve().parents[1]
@@ -197,7 +200,23 @@ table.append(("Real data", "every row update", "numpy.linalg.solve",
               f"max|·| = {diff_all:.0e}", diff_all < 1e-10))
 
 
-# %% 6. Verification table
+# %% 6. Assumption checks (Section 3 of the report)
+# Assumption 1 uses the test RMSE of the whole grid. Assumptions 3 and 5 use the
+# test residuals r − r̂ of the best model, with predictions clipped as in Step 7.
+print("\n6. Assumption checks")
+curves = {f"λ = {lam:g}": (KS, [results[(k, lam)]["test"] for k in KS]) for lam in LAMS}
+lowest_eig = min_eig_G(R_c, mask_tr, rb["U"], rb["V"], lam_best)
+P_best = my_predict(rb["U"], rb["V"], mu, clip=CLIP)
+pred = P_best[mask_te]
+resid = R_te[mask_te] - pred
+print_checks(curves, mask_tr, k_best, lam_best, lowest_eig, pred, resid)
+plot_checks(curves, pred, resid,
+            f"Assumption checks on MovieLens (k = {k_best}, λ = {lam_best:g}, test residuals)",
+            FIG_DIR / "assumptions_real.png")
+assert lowest_eig >= lam_best - 1e-9, "Proposition 2 violated"
+
+
+# %% 7. Verification table
 print("\nVerification table")
 print(f"{'Data':<22}{'Quantity':<30}{'Compared with':<22}{'Difference':<22}Pass?")
 for row in table:

@@ -14,6 +14,9 @@ Checks:
   4. Baseline     a mean-filled truncated SVD does much worse on the hidden entries.
   5. Sample size  the error on the hidden entries shrinks as the matrix grows.
   6. Stress test  lower the observed fraction until ALS stops recovering R_true.
+  7. Assumptions  the checks of Assumptions 1, 3, 4 and 5 (assumptions.py). They
+                  hold here by construction, so this shows what "passing" looks
+                  like before the same checks run on MovieLens (run_real.py).
 At the end it prints the rows of the verification table.
 
 Run from the repository root:   python src/check_simulation.py
@@ -31,6 +34,7 @@ import numpy as np
 from methods import (my_centre, my_normal_equations, my_gauss_solve, my_als,
                      my_predict, my_rmse, report)
 from simulate import simulate_ratings
+from assumptions import min_eig_G, print_checks, print_residual_table, plot_checks
 
 try:
     ROOT = Path(__file__).resolve().parents[1]
@@ -181,6 +185,39 @@ ax.set_title("ALS stops recovering when too few ratings are known")
 ax.legend()
 fig.tight_layout()
 fig.savefig(FIG_DIR / "als_stress_test.png", dpi=150)
+
+
+# %% 7. Assumption checks (Section 3 of the report)
+# Assumption 1 uses the held-out RMSE: the hidden entries against the noisy R,
+# the same quantity that the test set gives on real data. Assumptions 3 and 5
+# use the residuals r − r̂ on the hidden entries of the main fit (k = 3, λ = 1).
+print("\n7. Assumption checks (they hold here by construction)")
+ks_check = [1, 2, 3, 4, 5, 6]
+held_out = []
+for kk in ks_check:
+    *_, P_k = fit(R, mask, k=kk)
+    held_out.append(my_rmse(P_k, R, ~mask))
+curves = {f"λ = {LAM:g}": (ks_check, held_out)}
+
+lowest_eig = min_eig_G(R_c, mask, U, V, LAM)
+pred = P[~mask]
+resid = R[~mask] - pred
+print_checks(curves, mask, K, LAM, lowest_eig, pred, resid, true_rank=K)
+plot_checks(curves, pred, resid, "Assumption checks on simulated data (k = 3, λ = 1)",
+            FIG_DIR / "assumptions_simulation.png")
+assert lowest_eig >= LAM - 1e-9, "Proposition 2 violated"
+
+# The residuals of a fitted model mix two things: the noise in the data (normal,
+# and unrelated to r̂, by construction) and the estimator's own error. To separate
+# them: predicting with R_true itself leaves only the noise, so Assumptions 3 and
+# 5 must pass exactly; a much smaller λ removes most of the shrinkage towards µ.
+*_, P_small = fit(R, mask, lam=0.01)
+print("   Assumptions 3 and 5, the data against the estimator:")
+print_residual_table([
+    ("R_true itself (residual = noise)", R_true[~mask], R[~mask] - R_true[~mask]),
+    (f"ALS, k = {K}, λ = {LAM:g}", pred, resid),
+    (f"ALS, k = {K}, λ = 0.01", P_small[~mask], R[~mask] - P_small[~mask]),
+])
 
 
 # %% Verification table
