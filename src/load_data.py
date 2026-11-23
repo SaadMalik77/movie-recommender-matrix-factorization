@@ -7,7 +7,7 @@ figures/.
 Run it all:       python src/load_data.py
 Or cell by cell:  in VS Code, click "Run Cell" above each "# %%" line.
 
-Owner: Muhammad Saad Malik | Checked by: Jagadeesh Aravind Kalyan Shetti
+Owner: Muhammad Saad Malik | Checked by: Emmanuel Adjei Danso
 """
 
 # %% Setup
